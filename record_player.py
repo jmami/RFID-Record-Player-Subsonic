@@ -23,6 +23,74 @@ STEPPER_PINS = [14, 15, 18, 23]
 ENV_FILE = ".env"
 RFID_FILE = "rfid.json"
 
+def ensure_pulseaudio():
+    """Asegura que PulseAudio está corriendo"""
+    print("🔊 Verificando PulseAudio...")
+    try:
+        subprocess.run(["pulseaudio", "--check"], check=True, capture_output=True)
+        print("✅ PulseAudio ya está corriendo")
+        return True
+    except subprocess.CalledProcessError:
+        print("🔄 Iniciando PulseAudio...")
+        try:
+            subprocess.Popen(
+                ["pulseaudio", "--start", "--log-target=syslog"],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL
+            )
+            time.sleep(2)
+            return True
+        except Exception as e:
+            print(f"⚠️  Error iniciando PulseAudio: {e}")
+            return False
+
+def set_bluetooth_as_default_sink():
+    """Intenta configurar el dispositivo Bluetooth como sink por defecto"""
+    try:
+        # Buscar el sink de Bluetooth
+        result = subprocess.run(
+            ["pactl", "list", "short", "sinks"],
+            capture_output=True,
+            text=True
+        )
+
+        for line in result.stdout.split('\n'):
+            if 'bluez_sink' in line:
+                sink_name = line.split()[1]
+                print(f"🎧 Configurando {sink_name} como salida predeterminada...")
+                subprocess.run(["pactl", "set-default-sink", sink_name], check=True)
+
+                # Asegurar que el sink no está muteado y a volumen audible
+                print(f"🔊 Desmuteando y ajustando volumen de {sink_name}...")
+                subprocess.run(["pactl", "set-sink-mute", sink_name, "0"], check=False)
+                subprocess.run(["pactl", "set-sink-volume", sink_name, "100%"], check=False)
+
+                return True
+
+        return False
+    except Exception as e:
+        print(f"⚠️  Error configurando sink: {e}")
+        return False
+
+def wait_for_bt_sink(max_retries=30, delay=2):
+    """Espera a que el dispositivo Bluetooth esté disponible"""
+    print("🔊 Esperando altavoz Bluetooth...")
+
+    for i in range(max_retries):
+        try:
+            sinks = subprocess.check_output("pactl list short sinks", shell=True).decode()
+            if "bluez_sink" in sinks:
+                print("✅ Altavoz Bluetooth detectado.")
+                set_bluetooth_as_default_sink()
+                return True
+        except Exception as e:
+            print(f"⏳ Esperando... ({i+1}/{max_retries}) - {e}")
+
+        time.sleep(delay)
+
+    print("⚠️ No se detectó altavoz Bluetooth después de esperar.")
+    return False
+
 class SubsonicController:
     def __init__(self):
         self.load_config()
